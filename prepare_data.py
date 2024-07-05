@@ -5,14 +5,17 @@ import pandas as pd
 from helper_functions import seed_everything, one_hot_encode, save_ChemBERTa_features
 
 if __name__ == "__main__":
+    
     ## Seed for reproducibility
     seed_everything()
     with open("./SETTINGS.json") as file:
         settings = json.load(file)
+
     ## Read data
     print("\nPreparing data...")
     de_train = pd.read_parquet(settings["TRAIN_RAW_DATA_PATH"])
     id_map = pd.read_csv(settings["TEST_RAW_DATA_PATH"])
+
     ## Create data augmentation
     de_cell_type = de_train.iloc[:, [0] + list(range(5, de_train.shape[1]))]
     de_sm_name = de_train.iloc[:, [1] + list(range(5, de_train.shape[1]))]
