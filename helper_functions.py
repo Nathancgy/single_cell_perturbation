@@ -46,9 +46,9 @@ def one_hot_encode(data_train, data_test, out_dir):
     np.save(f"{out_dir}/one_hot_train.npy", train_features.toarray().astype(float))
     np.save(f"{out_dir}/one_hot_test.npy", test_features.toarray().astype(float))        
         
-def build_ChemBERTa_features(smiles_list):
-    chemberta = AutoModelForMaskedLM.from_pretrained("DeepChem/ChemBERTa-77M-MTR")
-    tokenizer = AutoTokenizer.from_pretrained("DeepChem/ChemBERTa-77M-MTR")
+def build_ChemBERTa_features(smiles_list, model):
+    chemberta = AutoModelForMaskedLM.from_pretrained("DeepChem/ChemBERTa-77M-" + model)
+    tokenizer = AutoTokenizer.from_pretrained("DeepChem/ChemBERTa-77M-" + model)
     chemberta.eval()
     embeddings = torch.zeros(len(smiles_list), 600)
     embeddings_mean = torch.zeros(len(smiles_list), 600)
@@ -63,16 +63,16 @@ def build_ChemBERTa_features(smiles_list):
     return embeddings.numpy(), embeddings_mean.numpy()
 
 
-def save_ChemBERTa_features(smiles_list, out_dir, on_train_data=False):
+def save_ChemBERTa_features(smiles_list, out_dir, model, on_train_data=False):
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
-    emb, emb_mean = build_ChemBERTa_features(smiles_list)
+    emb, emb_mean = build_ChemBERTa_features(smiles_list, model)
     if on_train_data:
-        np.save(f"{out_dir}/chemberta_train.npy", emb)
-        np.save(f"{out_dir}/chemberta_train_mean.npy", emb_mean)
+        np.save(f"{out_dir}/chemberta_train_" + model + ".npy", emb)
+        np.save(f"{out_dir}/chemberta_train_mean_" + model + ".npy", emb_mean)
     else:
-        np.save(f"{out_dir}/chemberta_test.npy", emb)
-        np.save(f"{out_dir}/chemberta_test_mean.npy", emb_mean)                
+        np.save(f"{out_dir}/chemberta_test_" + model + ".npy", emb)
+        np.save(f"{out_dir}/chemberta_test_mean_" + model + ".npy", emb_mean)                
                 
 def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quantiles_df=None):
     """
