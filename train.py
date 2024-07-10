@@ -35,6 +35,3 @@ if __name__ == "__main__":
     print("\nTraining starting...")
     train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, train_config)
     print("\nDone.")
-    
-    
-    
