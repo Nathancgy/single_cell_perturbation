@@ -226,6 +226,14 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
 def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, config, chemberta):
     kf_cv = KF(n_splits=config["KF_N_SPLITS"], shuffle=True, random_state=42)
     trained_models = {'initial': [], 'light': [], 'heavy': []}
+    if not os.path.exists(f'{settings["MODEL_DIR"]}'):
+        os.mkdir(f'{settings["MODEL_DIR"]}')
+    if not os.path.exists(f'{settings["MODEL_DIR"]}{chemberta}/'):
+        os.mkdir(f'{settings["MODEL_DIR"]}{chemberta}/')
+    if not os.path.exists(f'{settings["LOGS_DIR"]}'):
+        os.mkdir(f'{settings["LOGS_DIR"]}')
+    if not os.path.exists(f'{settings["LOGS_DIR"]}{chemberta}/'):   
+        os.mkdir(f'{settings["LOGS_DIR"]}{chemberta}/')
     for scheme, clip_norm, input_features in zip(['initial', 'light', 'heavy'], config["CLIP_VALUES"], [X_vec, X_vec_light, X_vec_heavy]):
         seed_everything()
         models = cross_validate_models(input_features, y, kf_cv, cell_types_sm_names, chemberta, config=config, scheme=scheme, clip_norm=clip_norm)
