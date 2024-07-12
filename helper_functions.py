@@ -197,7 +197,7 @@ def train_function(model, x_train, y_train, x_val, y_val, info_data, config, cli
     return model, results
 
 
-def cross_validate_models(X, y, kf_cv, cell_types_sm_names, config=None, scheme='initial', clip_norm=1.0):
+def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=None, scheme='initial', clip_norm=1.0):
     trained_models = []
     for i,(train_idx,val_idx) in enumerate(kf_cv.split(X)):
         print(f"\nSplit {i+1}/{kf_cv.n_splits}...")
@@ -207,28 +207,28 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, config=None, scheme=
                     'val_cell_type': cell_types_sm_names.iloc[val_idx]['cell_type'].tolist(),
                     'train_sm_name': cell_types_sm_names.iloc[train_idx]['sm_name'].tolist(),
                     'val_sm_name': cell_types_sm_names.iloc[val_idx]['sm_name'].tolist()}
-        for Model in [LSTM, Conv, GRU]:
+        for Model in [LSTM, Conv]:
             model = Model(scheme)
             model, results = train_function(model, x_train, y_train, x_val, y_val, info_data, config=config, clip_norm=clip_norm)
-            model.to('cpu')
+            model.to(device)
             trained_models.append(model)
-            torch.save(model.state_dict(), f'{settings["MODEL_DIR"]}pytorch_{model.name}_{scheme}_fold{i}.pt')
-            with open(f'{settings["LOGS_DIR"]}{model.name}_{scheme}_fold{i}.json', 'w') as file:
+            if not os.path.exists(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/'):
+                os.mkdir(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/')
+            torch.save(model.state_dict(), f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/{scheme}_fold{i}.pt')
+            if not os.path.exists(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/'):
+                os.mkdir(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/')
+            with open(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/{scheme}_fold{i}.json', 'w') as file:
                 json.dump(results, file)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
     return trained_models
 
-def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, config):
+def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, config, chemberta):
     kf_cv = KF(n_splits=config["KF_N_SPLITS"], shuffle=True, random_state=42)
     trained_models = {'initial': [], 'light': [], 'heavy': []}
-    if not os.path.exists(settings["MODEL_DIR"]):
-        os.mkdir(settings["MODEL_DIR"])
-    if not os.path.exists(settings["LOGS_DIR"]):
-        os.mkdir(settings["LOGS_DIR"])
     for scheme, clip_norm, input_features in zip(['initial', 'light', 'heavy'], config["CLIP_VALUES"], [X_vec, X_vec_light, X_vec_heavy]):
         seed_everything()
-        models = cross_validate_models(input_features, y, kf_cv, cell_types_sm_names, config=config, scheme=scheme, clip_norm=clip_norm)
+        models = cross_validate_models(input_features, y, kf_cv, cell_types_sm_names, chemberta, config=config, scheme=scheme, clip_norm=clip_norm)
         trained_models[scheme].extend(models)
     return trained_models
 
@@ -241,7 +241,7 @@ def inference_pytorch(model, dataloader):
         x = x.to(device)
         pred = model(x).detach().cpu().numpy()
         preds.append(pred)
-    model.to('cpu')
+    model.to(device)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     return np.concatenate(preds, axis=0)
@@ -266,14 +266,16 @@ def weighted_average_prediction(X_test, trained_models, model_wise=[0.25, 0.35, 
         all_preds.append(current_pred)
     return np.stack(all_preds, axis=1).sum(axis=1)
 
-def load_trained_models(path=settings["MODEL_DIR"], kf_n_splits=5):
+def load_trained_models(chemberta, path=settings["MODEL_DIR"], kf_n_splits=5):
     trained_models = {'initial': [], 'light': [], 'heavy': []}
     for scheme in ['initial', 'light', 'heavy']:
         for fold in range(kf_n_splits):
             for Model in [LSTM, Conv, GRU]:
                 model = Model(scheme)
-                for weights_path in os.listdir(path):
-                    if model.name in weights_path and scheme in weights_path and f'fold{fold}' in weights_path:
-                        model.load_state_dict(torch.load(f'{path}{weights_path}', map_location='cpu'))
-                        trained_models[scheme].append(model)
+                model_dir = f'{path}{chemberta}/{model.name}/'
+                weights_filename = f'{scheme}_fold{fold}.pt'
+                weights_path = os.path.join(model_dir, weights_filename)
+                if os.path.exists(weights_path):
+                    model.load_state_dict(torch.load(weights_path, map_location='cpu'))
+                    trained_models[scheme].append(model)
     return trained_models

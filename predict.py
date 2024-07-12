@@ -41,7 +41,7 @@ if __name__ == "__main__":
     
     ## Load trained models
     print("\nLoading trained models...")
-    trained_models = load_trained_models(path=f'{settings["MODEL_DIR"]}')
+    trained_models = load_trained_models("MTR", path=f'{settings["MODEL_DIR"]}')
     fold_weights = test_config["FOLD_COEFS"] if test_config["KF_N_SPLITS"] == 5 else [1.0/test_config["KF_N_SPLITS"]]*test_config["KF_N_SPLITS"]
     ## Start predictions
     print("\nStarting predictions...")
