@@ -3,7 +3,7 @@ import time
 import pandas as pd
 import numpy as np
 import json
-from helper_functions import combine_features, load_trained_models, average_prediction, weighted_average_prediction
+from src.helper_functions import combine_features, load_trained_models, average_prediction, weighted_average_prediction
 
 def read_data(settings):
     de_train = pd.read_parquet(settings["TRAIN_RAW_DATA_PATH"])
@@ -13,7 +13,7 @@ def read_data(settings):
 
 if __name__ == "__main__":
     ## Read settings and config files
-    with open("./SETTINGS.json") as file:
+    with open("./config/SETTINGS.json") as file:
         settings = json.load(file)
     with open("./config/test_config.json") as file:
         test_config = json.load(file)

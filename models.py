@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from helper_classes import LogCoshLoss
+from src.helper_classes import LogCoshLoss
 
 dims_dict = {'conv': {'heavy': 13400, 'light': 4576, 'initial': 8992},
                                     'rnn': {'linear': {'heavy': 99968, 'light': 24192, 'initial': 29568},

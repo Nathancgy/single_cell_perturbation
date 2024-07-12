@@ -3,7 +3,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 
-base_path = 'results/'
+base_path = '../results/'
 categories = ['initial', 'light', 'heavy']
 folds = [0, 1, 2, 3, 4]
 

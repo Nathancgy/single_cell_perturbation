@@ -3,13 +3,13 @@ from argparse import Namespace
 import pandas as pd
 import numpy as np
 import json
-from helper_functions import seed_everything, combine_features, train_validate
+from src.helper_functions import seed_everything, combine_features, train_validate
 
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
 if __name__ == "__main__":
 
-    with open("./SETTINGS.json") as file:
+    with open("./config/SETTINGS.json") as file:
         settings = json.load(file)
     with open("./config/train_config.json") as file:
         train_config = json.load(file)

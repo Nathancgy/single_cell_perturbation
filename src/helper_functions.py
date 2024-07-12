@@ -13,15 +13,15 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 import random
 from sklearn.model_selection import KFold as KF
 from models import Conv, LSTM, GRU
-from helper_classes import Dataset
+from src.helper_classes import Dataset
 
-with open("./SETTINGS.json") as file:
+with open("./config/SETTINGS.json") as file:
     settings = json.load(file)
     
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def seed_everything():
-    
+
     seed = 42
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
