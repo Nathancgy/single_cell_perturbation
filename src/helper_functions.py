@@ -298,7 +298,7 @@ def average_prediction(X_test, trained_models):
     all_preds = []
     test_dataloader = DataLoader(Dataset(torch.FloatTensor(X_test)), num_workers=4, batch_size=64, shuffle=False)
 
-    for i,model in enumerate(trained_models):
+    for model in trained_models:
         current_pred = inference_pytorch(model, test_dataloader)
         all_preds.append(current_pred)
 
