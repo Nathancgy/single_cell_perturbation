@@ -28,16 +28,36 @@ if __name__ == "__main__":
     std_sm_name = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}std_sm_name.csv')
     quantiles_df = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}quantiles_cell_type.csv')
 
+    # Print sizes of loaded features
+    print(f"mean_cell_type size: {mean_cell_type.shape}")
+    print(f"std_cell_type size: {std_cell_type.shape}")
+    print(f"mean_sm_name size: {mean_sm_name.shape}")
+    print(f"std_sm_name size: {std_sm_name.shape}")
+    print(f"quantiles_df size: {quantiles_df.shape}")
+    print(f"one_hot_train size: {one_hot_train.shape}")
+    print(f"y size: {y.shape}")
+
     for chemberta in ['MTR', 'MLM']:
 
         train_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_train_{chemberta}.npy')
         train_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_train_mean_{chemberta}.npy')
+
+        # Print sizes of ChemBERTa features
+        print(f"train_chem_feat size ({chemberta}): {train_chem_feat.shape}")
+        print(f"train_chem_feat_mean size ({chemberta}): {train_chem_feat_mean.shape}")
+
         X_vec = combine_features([mean_cell_type, std_cell_type, mean_sm_name, std_sm_name],\
                 [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train)
-        X_vec_light = combine_features([mean_cell_type,mean_sm_name],\
+        X_vec_light = combine_features([mean_cell_type, mean_sm_name],\
                     [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train)
-        X_vec_heavy = combine_features([quantiles_df,mean_cell_type,mean_sm_name],\
-                    [train_chem_feat,train_chem_feat_mean], de_train, one_hot_train, quantiles_df)
+        X_vec_heavy = combine_features([quantiles_df, mean_cell_type, mean_sm_name],\
+                    [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train, quantiles_df)
+        
+        # Print the dimensions of the combined features before training
+        print(f"\nDimensions before training starts for {chemberta}:")
+        print(f"X_vec dimensions: {X_vec.shape}")
+        print(f"X_vec_light dimensions: {X_vec_light.shape}")
+        print(f"X_vec_heavy dimensions: {X_vec_heavy.shape}")
         
         cell_types_sm_names = de_train[['cell_type', 'sm_name']]
         print("\nTraining starting...")
