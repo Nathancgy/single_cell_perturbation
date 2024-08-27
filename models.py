@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from src.helper_classes import LogCoshLoss
+from src.helper_classes import LogCoshLoss, CBAM
 
 dims_dict = {'conv': {'heavy': 13400, 'light': 4576, 'initial': 8992},
                                     'rnn': {'linear': {'heavy': 99968, 'light': 24192, 'initial': 29568},
@@ -10,15 +10,18 @@ class Conv(nn.Module):
     def __init__(self, scheme):
         super(Conv, self).__init__()
         self.name = 'Conv'
-        self.conv_block = nn.Sequential(nn.Conv1d(1, 8, 5, stride=1, padding=0),
-                                        nn.Dropout(0.3),
-                                        nn.Conv1d(8, 8, 5, stride=1, padding=0),
-                                        nn.ReLU(),
-                                        nn.Conv1d(8, 16, 5, stride=2, padding=0),
-                                        nn.Dropout(0.3),
-                                        nn.AvgPool1d(11),
-                                        nn.Conv1d(16, 8, 3, stride=3, padding=0),
-                                        nn.Flatten())
+        self.conv_block = nn.Sequential(
+            nn.Conv1d(1, 8, 5, stride=1, padding=0),
+            nn.Dropout(0.3),
+            nn.Conv1d(8, 8, 5, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Conv1d(8, 16, 5, stride=2, padding=0),
+            nn.Dropout(0.3),
+            nn.AvgPool1d(11),
+            nn.Conv1d(16, 8, 3, stride=3, padding=0),
+        )
+        self.cbam = CBAM(8)
+        self.flatten = nn.Flatten()
         self.scheme = scheme
         self.linear = nn.Sequential(
                 nn.Linear(dims_dict['conv'][self.scheme], 1024),
@@ -36,10 +39,14 @@ class Conv(nn.Module):
     def forward(self, x, y=None):
         if y is None:
             out = self.conv_block(x)
+            out = self.cbam(out)
+            out = self.flatten(out)
             out = self.head1(self.linear(out))
             return out
         else:
             out = self.conv_block(x)
+            out = self.cbam(out)
+            out = self.flatten(out)
             out = self.head1(self.linear(out))
             loss1 = 0.4*self.loss1(out, y) + 0.3*self.loss2(out, y) + 0.3*self.loss3(out, y)
             yhat = torch.sigmoid(out)
