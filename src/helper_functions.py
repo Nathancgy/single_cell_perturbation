@@ -283,18 +283,18 @@ def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, conf
 
     return trained_models
 
-#### Inference utilities
+ #### Inference utilities
 def inference_pytorch(model, dataloader):
-
+    device = next(model.parameters()).device
     model.eval()
     preds = []
-
+ 
     with torch.no_grad():
         for x in dataloader:
             x = x.to(device)
             pred = model(x).cpu().numpy()
             preds.append(pred)
-
+ 
     return np.concatenate(preds, axis=0)
 
 def average_prediction(X_test, trained_models):
@@ -324,9 +324,9 @@ def weighted_average_prediction(X_test, trained_models, model_wise=[0.25, 0.35, 
     return np.stack(all_preds, axis=1).sum(axis=1)
 
 def load_trained_models(chemberta, path=settings["MODEL_DIR"], kf_n_splits=5):
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     trained_models = {'initial': [], 'light': [], 'heavy': []}
-
+ 
     for scheme in ['initial', 'light', 'heavy']:
         for fold in range(kf_n_splits):
             for Model in [Conv]:
@@ -335,7 +335,8 @@ def load_trained_models(chemberta, path=settings["MODEL_DIR"], kf_n_splits=5):
                 weights_filename = f'{scheme}_fold{fold}.pt'
                 weights_path = os.path.join(model_dir, weights_filename)
                 if os.path.exists(weights_path):
-                    model.load_state_dict(torch.load(weights_path, map_location='cpu'))
+                    model.load_state_dict(torch.load(weights_path, map_location=device))
+                    model.to(device)
                     trained_models[scheme].append(model)
-
+ 
     return trained_models

@@ -28,8 +28,16 @@ if __name__ == "__main__":
     mean_sm_name = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}mean_sm_name.csv')
     std_sm_name = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}std_sm_name.csv')
     quantiles_df = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}quantiles_cell_type.csv')
-    test_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_test.npy')
-    test_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_test_mean.npy')
+    
+    # Load ChemBERTa features based on the type (MLM or MTR)
+    chemberta_type = test_config.get("CHEMBERTA_TYPE", "MTR")
+    if chemberta_type == "MLM":
+        test_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mlm_test.npy')
+        test_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mlm_test_mean.npy')
+    else:  # Default to MTR
+        test_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mtr_test.npy')
+        test_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mtr_test_mean.npy')
+    
     one_hot_test = pd.DataFrame(np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}one_hot_test.npy'))
     
     test_vec = combine_features([mean_cell_type, std_cell_type, mean_sm_name, std_sm_name],\
@@ -41,7 +49,7 @@ if __name__ == "__main__":
     
     ## Load trained models
     print("\nLoading trained models...")
-    trained_models = load_trained_models("MTR", path=f'{settings["MODEL_DIR"]}')
+    trained_models = load_trained_models(chemberta_type, path=f'{settings["MODEL_DIR"]}')
     fold_weights = test_config["FOLD_COEFS"] if test_config["KF_N_SPLITS"] == 5 else [1.0/test_config["KF_N_SPLITS"]]*test_config["KF_N_SPLITS"]
     ## Start predictions
     print("\nStarting predictions...")
@@ -73,5 +81,5 @@ if __name__ == "__main__":
     df_sub = 0.34*df1 + 0.33*df2 + 0.33*df3 # Final ensembling
     if not os.path.exists(settings["SUBMISSION_DIR"]):
         os.mkdir(settings["SUBMISSION_DIR"])
-    df_sub.to_csv(f'{settings["SUBMISSION_DIR"]}submission.csv')
-    print("\nDone.")
+    df_sub.to_csv(f'{settings["SUBMISSION_DIR"]}submission_{chemberta_type}.csv')
+    print(f"\nDone. Submission file for {chemberta_type} ChemBERTa saved.")
