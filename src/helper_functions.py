@@ -198,8 +198,8 @@ def train_function(model, x_train, y_train, x_val, y_val, info_data, config, cli
     data_x_val = torch.FloatTensor(x_val)
     data_y_val = torch.FloatTensor(y_val)
     
-    train_dataloader = DataLoader(Dataset(data_x_train, data_y_train), num_workers=0, batch_size=16, shuffle=True)
-    val_dataloader = DataLoader(Dataset(data_x_val, data_y_val), num_workers=0, batch_size=32, shuffle=False)
+    train_dataloader = DataLoader(Dataset(data_x_train, data_y_train), num_workers=0, batch_size=128, shuffle=True)
+    val_dataloader = DataLoader(Dataset(data_x_val, data_y_val), num_workers=0, batch_size=256, shuffle=False)
     
     best_loss = np.inf
     best_weights = None
