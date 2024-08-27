@@ -2,13 +2,16 @@ from argparse import Namespace
 import os
 import json
 import pandas as pd
+import torch
 from src.helper_functions import seed_everything, one_hot_encode, save_ChemBERTa_features
 
 if __name__ == "__main__":
 
+    print(torch.cuda.is_available())
+    
     ## Seed for reproducibility
     seed_everything()
-    with open("./SETTINGS.json") as file:
+    with open("./config/SETTINGS.json") as file:
         settings = json.load(file)
 
     ## Read data

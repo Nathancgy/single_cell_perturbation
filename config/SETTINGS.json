@@ -1,1 +1,10 @@
-{"TRAIN_RAW_DATA_PATH": "./data/de_train.parquet", "TEST_RAW_DATA_PATH": "./data/id_map.csv", "TRAIN_DATA_AUG_DIR": "./prepared_data/", "SAMPLE_SUBMISSION_PATH": "./data/sample_submission.csv", "MODEL_DIR": "./trained_models/", "LOGS_DIR": "./results/", "SUBMISSION_DIR": "./submissions/"}
+{
+    "TRAIN_RAW_DATA_PATH": "./data/de_train.parquet",
+    "TEST_RAW_DATA_PATH": "./data/id_map.csv",
+    "TRAIN_DATA_AUG_DIR": "./prepared_data/",
+    "SAMPLE_SUBMISSION_PATH": "./data/sample_submission.csv",
+    "MODEL_DIR": "./trained_models/",
+    "LOGS_DIR": "./results/",
+    "SUBMISSION_DIR": "./submissions/",
+    "CHEMBERTA_MODEL_DIR": "./models/"
+  }

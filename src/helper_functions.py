@@ -49,19 +49,25 @@ def one_hot_encode(data_train, data_test, out_dir):
     np.save(f"{out_dir}/one_hot_test.npy", test_features.toarray().astype(float))        
         
 def build_ChemBERTa_features(smiles_list, model):
-
-    chemberta = AutoModelForMaskedLM.from_pretrained("DeepChem/ChemBERTa-77M-" + model)
-    tokenizer = AutoTokenizer.from_pretrained("DeepChem/ChemBERTa-77M-" + model)
+    model_path = f"./models/ChemBERTa-77M-{model}"
+    chemberta = AutoModelForMaskedLM.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    chemberta = chemberta.to(device)
     chemberta.eval()
+    
     embeddings = torch.zeros(len(smiles_list), 600)
     embeddings_mean = torch.zeros(len(smiles_list), 600)
+    
     with torch.no_grad():
         for i, smiles in enumerate(tqdm(smiles_list)):
             encoded_input = tokenizer(smiles, return_tensors="pt", padding=False, truncation=True)
+            encoded_input = {k: v.to(device) for k, v in encoded_input.items()}
             model_output = chemberta(**encoded_input)
-            embedding = model_output[0][::,0,::]
+            embedding = model_output[0][::,0,::].cpu()
             embeddings[i] = embedding
-            embedding = torch.mean(model_output[0], 1)
+            embedding = torch.mean(model_output[0], 1).cpu()
             embeddings_mean[i] = embedding
 
     return embeddings.numpy(), embeddings_mean.numpy()
@@ -138,13 +144,12 @@ def mrrmse_np(y_pred, y_true):
 
 #### Training utilities
 def train_step(dataloader, model, opt, clip_norm):
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
     train_losses = []
     train_mrrmse = []
 
     for x, target in dataloader:
-        model.to(device)
         x = x.to(device)
         target = target.to(device)
         loss = model(x, target)
@@ -159,60 +164,68 @@ def train_step(dataloader, model, opt, clip_norm):
     return np.mean(train_losses), np.mean(train_mrrmse)
 
 def validation_step(dataloader, model):
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
     val_losses = []
     val_mrrmse = []
 
-    for x, target in dataloader:
-        model.to(device)
-        x = x.to(device)
-        target = target.to(device)
-        loss = model(x,target)
-        pred = model(x).detach().cpu().numpy()
-        val_mrrmse.append(mrrmse_np(pred, target.cpu().numpy()))
-        val_losses.append(loss.item())
+    with torch.no_grad():
+        for x, target in dataloader:
+            x = x.to(device)
+            target = target.to(device)
+            loss = model(x,target)
+            pred = model(x).cpu().numpy()
+            val_mrrmse.append(mrrmse_np(pred, target.cpu().numpy()))
+            val_losses.append(loss.item())
 
     return np.mean(val_losses), np.mean(val_mrrmse)
 
 
 def train_function(model, x_train, y_train, x_val, y_val, info_data, config, clip_norm=1.0):
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     opt = torch.optim.Adam(model.parameters(), lr=config["LEARNING_RATES"][0])
     model.to(device)
-    results = {'train_loss': [], 'val_loss': [], 'train_mrrmse': [], 'val_mrrmse': [],\
-               'train_cell_type': info_data['train_cell_type'], 'val_cell_type': info_data['val_cell_type'], 'train_sm_name': info_data['train_sm_name'], 'val_sm_name': info_data['val_sm_name'], 'runtime': None}
+    results = {'train_loss': [], 'val_loss': [], 'train_mrrmse': [], 'val_mrrmse': [],
+               'train_cell_type': info_data['train_cell_type'], 'val_cell_type': info_data['val_cell_type'], 
+               'train_sm_name': info_data['train_sm_name'], 'val_sm_name': info_data['val_sm_name'], 'runtime': None}
    
     x_train_aug, y_train_aug = augment_data(x_train, y_train)
     x_train_aug = np.concatenate([x_train, x_train_aug], axis=0)
     y_train_aug = np.concatenate([y_train, y_train_aug], axis=0)
+    
     data_x_train = torch.FloatTensor(x_train_aug)
     data_y_train = torch.FloatTensor(y_train_aug)
     data_x_val = torch.FloatTensor(x_val)
     data_y_val = torch.FloatTensor(y_val)
-    train_dataloader = DataLoader(Dataset(data_x_train, data_y_train), num_workers=4, batch_size=16, shuffle=True)
-    val_dataloader = DataLoader(Dataset(data_x_val, data_y_val), num_workers=4, batch_size=32, shuffle=False)
+    
+    train_dataloader = DataLoader(Dataset(data_x_train, data_y_train), num_workers=0, batch_size=16, shuffle=True)
+    val_dataloader = DataLoader(Dataset(data_x_val, data_y_val), num_workers=0, batch_size=32, shuffle=False)
+    
     best_loss = np.inf
     best_weights = None
     t0 = time.time()
 
     for e in range(config["EPOCHS"]):
-
-        loss, mrrmse = train_step(train_dataloader, model, opt, clip_norm)
-        val_loss, val_mrrmse = validation_step(val_dataloader, model)
-        results['train_loss'].append(float(loss))
-        results['val_loss'].append(float(val_loss))
-        results['train_mrrmse'].append(float(mrrmse))
-        results['val_mrrmse'].append(float(val_mrrmse))
-        if val_mrrmse < best_loss:
-            best_loss = val_mrrmse
-            best_weights = model.state_dict()
-            print('BEST ----> ')
-        print(f"{model.name} Epoch {e}, train_loss {round(loss,3)}, val_loss {round(val_loss, 3)}, val_mrrmse {val_mrrmse}")
+        try:
+            loss, mrrmse = train_step(train_dataloader, model, opt, clip_norm)
+            val_loss, val_mrrmse = validation_step(val_dataloader, model)
+            results['train_loss'].append(float(loss))
+            results['val_loss'].append(float(val_loss))
+            results['train_mrrmse'].append(float(mrrmse))
+            results['val_mrrmse'].append(float(val_mrrmse))
+            if val_mrrmse < best_loss:
+                best_loss = val_mrrmse
+                best_weights = model.state_dict()
+                print('BEST ----> ')
+            print(f"{model.name} Epoch {e}, train_loss {round(loss,3)}, val_loss {round(val_loss, 3)}, val_mrrmse {val_mrrmse}")
+        except Exception as e:
+            print(f"Error during training: {str(e)}")
+            break
 
     t1 = time.time()
     results['runtime'] = float(t1-t0)
-    model.load_state_dict(best_weights)
+    if best_weights is not None:
+        model.load_state_dict(best_weights)
 
     return model, results
 
@@ -233,7 +246,6 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
         
         model = Conv(scheme)
         model, results = train_function(model, x_train, y_train, x_val, y_val, info_data, config=config, clip_norm=clip_norm)
-        model.to(device)
         trained_models.append(model)
 
         if not os.path.exists(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/'):
@@ -249,6 +261,8 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
     return trained_models
 
 def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, config, chemberta):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
     kf_cv = KF(n_splits=config["KF_N_SPLITS"], shuffle=True, random_state=42)
     trained_models = {'initial': [], 'light': [], 'heavy': []}
@@ -275,15 +289,11 @@ def inference_pytorch(model, dataloader):
     model.eval()
     preds = []
 
-    for x in dataloader:
-        model.to(device)
-        x = x.to(device)
-        pred = model(x).detach().cpu().numpy()
-        preds.append(pred)
-    model.to(device)
-
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    with torch.no_grad():
+        for x in dataloader:
+            x = x.to(device)
+            pred = model(x).cpu().numpy()
+            preds.append(pred)
 
     return np.concatenate(preds, axis=0)
 

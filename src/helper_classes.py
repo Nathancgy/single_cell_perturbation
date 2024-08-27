@@ -13,9 +13,7 @@ class LogCoshLoss(nn.Module):
     
     
 class Dataset:
-    """Python class to load the data for training and inference in Pytorch"""
     def __init__(self, data_x, data_y=None):
-        super(Dataset, self).__init__()
         self.data_x = data_x
         self.data_y = data_y
 
@@ -23,10 +21,14 @@ class Dataset:
         return len(self.data_x)
     
     def __getitem__(self, idx):
-        if self.data_y is not None:
-            return self.data_x[idx], self.data_y[idx]
-        else:
-            return self.data_x[idx]
+        try:
+            if self.data_y is not None:
+                return self.data_x[idx], self.data_y[idx]
+            else:
+                return self.data_x[idx]
+        except Exception as e:
+            print(f"Error accessing data at index {idx}: {str(e)}")
+            raise
         
 class ChannelAttention(nn.Module):
     def __init__(self, in_channels, reduction_ratio=16):

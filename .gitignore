@@ -2,3 +2,4 @@ prepared_data
 test.py
 __pycache__
 warnings.log
+qsar_regression.py

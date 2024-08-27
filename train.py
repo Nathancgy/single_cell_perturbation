@@ -3,12 +3,20 @@ from argparse import Namespace
 import pandas as pd
 import numpy as np
 import json
+import torch
 from src.helper_functions import seed_everything, combine_features, train_validate
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 if __name__ == "__main__":
+
+    print(f"PyTorch version: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"CUDA version: {torch.version.cuda}")
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+
 
     with open("./config/SETTINGS.json") as file:
         settings = json.load(file)
@@ -39,7 +47,6 @@ if __name__ == "__main__":
     print(f"y size: {y.shape}")
 
     for chemberta in ['MTR', 'MLM']:
-
         train_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_train_{chemberta}.npy')
         train_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_train_mean_{chemberta}.npy')
 
@@ -62,5 +69,7 @@ if __name__ == "__main__":
         
         cell_types_sm_names = de_train[['cell_type', 'sm_name']]
         print("\nTraining starting...")
-        train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, train_config, chemberta)
-        print("\nDone" + chemberta)
+        trained_models = train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, train_config, chemberta)
+        print("\nDone " + chemberta)
+
+        # You might want to save or further process the trained_models here
