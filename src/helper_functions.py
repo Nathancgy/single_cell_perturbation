@@ -12,7 +12,7 @@ from sklearn.preprocessing import OneHotEncoder
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 import random
 from sklearn.model_selection import KFold as KF
-from models import Conv, LSTM, GRU
+from models import Conv
 from src.helper_classes import Dataset
 
 with open("./config/SETTINGS.json") as file:
@@ -178,11 +178,7 @@ def validation_step(dataloader, model):
 
 def train_function(model, x_train, y_train, x_val, y_val, info_data, config, clip_norm=1.0):
 
-    if model.name in ['GRU']:
-        print('lr', config["LEARNING_RATES"][2])
-        opt = torch.optim.Adam(model.parameters(), lr=config["LEARNING_RATES"][2])
-    else:
-        opt = torch.optim.Adam(model.parameters(), lr=config["LEARNING_RATES"][0])
+    opt = torch.optim.Adam(model.parameters(), lr=config["LEARNING_RATES"][0])
     model.to(device)
     results = {'train_loss': [], 'val_loss': [], 'train_mrrmse': [], 'val_mrrmse': [],\
                'train_cell_type': info_data['train_cell_type'], 'val_cell_type': info_data['val_cell_type'], 'train_sm_name': info_data['train_sm_name'], 'val_sm_name': info_data['val_sm_name'], 'runtime': None}
@@ -235,22 +231,20 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
                     'train_sm_name': cell_types_sm_names.iloc[train_idx]['sm_name'].tolist(),
                     'val_sm_name': cell_types_sm_names.iloc[val_idx]['sm_name'].tolist()}
         
-        for Model in [LSTM, Conv]:
+        model = Conv(scheme)
+        model, results = train_function(model, x_train, y_train, x_val, y_val, info_data, config=config, clip_norm=clip_norm)
+        model.to(device)
+        trained_models.append(model)
 
-            model = Model(scheme)
-            model, results = train_function(model, x_train, y_train, x_val, y_val, info_data, config=config, clip_norm=clip_norm)
-            model.to(device)
-            trained_models.append(model)
-
-            if not os.path.exists(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/'):
-                os.mkdir(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/')
-            torch.save(model.state_dict(), f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/{scheme}_fold{i}.pt')
-            if not os.path.exists(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/'):
-                os.mkdir(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/')
-            with open(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/{scheme}_fold{i}.json', 'w') as file:
-                json.dump(results, file)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        if not os.path.exists(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/'):
+            os.mkdir(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/')
+        torch.save(model.state_dict(), f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/{scheme}_fold{i}.pt')
+        if not os.path.exists(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/'):
+            os.mkdir(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/')
+        with open(f'{settings["LOGS_DIR"]}{chemberta}/{model.name}/{scheme}_fold{i}.json', 'w') as file:
+            json.dump(results, file)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     return trained_models
 
@@ -325,7 +319,7 @@ def load_trained_models(chemberta, path=settings["MODEL_DIR"], kf_n_splits=5):
 
     for scheme in ['initial', 'light', 'heavy']:
         for fold in range(kf_n_splits):
-            for Model in [LSTM, Conv, GRU]:
+            for Model in [Conv]:
                 model = Model(scheme)
                 model_dir = f'{path}{chemberta}/{model.name}/'
                 weights_filename = f'{scheme}_fold{fold}.pt'

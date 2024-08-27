@@ -5,7 +5,8 @@ import numpy as np
 import json
 from src.helper_functions import seed_everything, combine_features, train_validate
 
-warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 if __name__ == "__main__":
 
