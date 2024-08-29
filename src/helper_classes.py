@@ -1,6 +1,11 @@
 import torch
 import torch.nn as nn
-
+import numpy as np
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import pandas as pd
 
 class LogCoshLoss(nn.Module):
     """Loss function for regression tasks"""
@@ -8,6 +13,16 @@ class LogCoshLoss(nn.Module):
         super().__init__()
 
     def forward(self, y_prime_t, y_t):
+        """
+        Compute the Log-Cosh loss between predicted and true values.
+
+        Args:
+            y_prime_t (torch.Tensor): Predicted values
+            y_t (torch.Tensor): True values
+
+        Returns:
+            torch.Tensor: Computed Log-Cosh loss
+        """
         ey_t = (y_t - y_prime_t)/3 # divide by 3 to avoid numerical overflow in cosh
         return torch.mean(torch.log(torch.cosh(ey_t + 1e-12)))
     
@@ -21,6 +36,18 @@ class Dataset:
         return len(self.data_x)
     
     def __getitem__(self, idx):
+        """
+        Get an item from the dataset.
+
+        Args:
+            idx (int): Index of the item to retrieve
+
+        Returns:
+            tuple or torch.Tensor: Returns (x, y) if data_y is not None, else returns x
+
+        Raises:
+            Exception: If there's an error accessing the data at the given index
+        """
         try:
             if self.data_y is not None:
                 return self.data_x[idx], self.data_y[idx]
@@ -69,3 +96,139 @@ class CBAM(nn.Module):
         x = x * self.channel_att(x)
         x = x * self.spatial_att(x)
         return x
+
+class DataProcessor:
+    def __init__(self):
+        self.scaler = StandardScaler()
+
+    def load_data(self, file_path):
+        """
+        Load data from Excel file.
+
+        Args:
+            file_path (str): Path to the Excel file
+
+        Returns:
+            pandas.DataFrame: Loaded data
+        """
+        print("Loading data...")
+        return pd.read_excel(file_path)
+
+    def calculate_descriptors(self, smiles):
+        """
+        Calculate Morgan fingerprints for a single SMILES string.
+
+        Args:
+            smiles (str): SMILES representation of a molecule
+
+        Returns:
+            numpy.ndarray: Morgan fingerprint as a bit vector
+        """
+        mol = Chem.MolFromSmiles(smiles)
+        morgan_fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=1024)
+        return np.array(morgan_fp)
+
+    def process_smiles(self, data):
+        """
+        Calculate descriptors for all SMILES in the dataset.
+
+        Args:
+            data (pandas.DataFrame): DataFrame containing SMILES column
+
+        Returns:
+            numpy.ndarray: Array of calculated descriptors
+        """
+        print("Calculating descriptors...")
+        X = np.array([self.calculate_descriptors(smiles) for smiles in data['SMILES']])
+        return X
+
+    def scale_features(self, X):
+        """
+        Scale features using StandardScaler.
+
+        Args:
+            X (numpy.ndarray): Input features
+
+        Returns:
+            numpy.ndarray: Scaled features
+        """
+        print("Scaling features...")
+        return self.scaler.fit_transform(X)
+
+    def prepare_data(self, file_path):
+        """
+        Load data, calculate descriptors, and scale features.
+
+        Args:
+            file_path (str): Path to the Excel file
+
+        Returns:
+            tuple: Scaled features, target values, and SMILES strings
+        """
+        data = self.load_data(file_path)
+        X = self.process_smiles(data)
+        X_scaled = self.scale_features(X)
+        y = data.drop('SMILES', axis=1)
+        return X_scaled, y, data['SMILES']
+    
+class PCAAnalysis:
+    def __init__(self, n_components=50):
+        self.n_components = n_components
+        self.pca = PCA(n_components=n_components)
+
+    def perform_pca(self, X):
+        """
+        Perform PCA on the input features.
+
+        Args:
+            X (numpy.ndarray): Input features
+
+        Returns:
+            numpy.ndarray: PCA-transformed features
+        """
+        print("Performing PCA...")
+        X_pca = self.pca.fit_transform(X)
+        return X_pca
+
+    def get_explained_variance_ratio(self):
+        """
+        Get the explained variance ratio for each component.
+
+        Returns:
+            numpy.ndarray: Explained variance ratio
+        """
+        return self.pca.explained_variance_ratio_
+
+    def get_cumulative_variance_ratio(self):
+        """
+        Get the cumulative explained variance ratio.
+
+        Returns:
+            numpy.ndarray: Cumulative explained variance ratio
+        """
+        return np.cumsum(self.pca.explained_variance_ratio_)
+
+    def get_optimal_components(self, threshold=0.95):
+        """
+        Get the number of components needed to explain a certain amount of variance.
+
+        Args:
+            threshold (float): Variance threshold (default: 0.95)
+
+        Returns:
+            int: Number of components needed to explain the specified variance
+        """
+        cumulative_variance = self.get_cumulative_variance_ratio()
+        return np.argmax(cumulative_variance >= threshold) + 1
+
+    def transform_data(self, X):
+        """
+        Transform data using the fitted PCA.
+
+        Args:
+            X (numpy.ndarray): Input features
+
+        Returns:
+            numpy.ndarray: PCA-transformed features
+        """
+        return self.pca.transform(X)

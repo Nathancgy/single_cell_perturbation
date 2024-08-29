@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import Descriptors
+from rdkit.Chem import AllChem
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
@@ -10,27 +10,25 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 def calculate_descriptors(smiles):
     mol = Chem.MolFromSmiles(smiles)
-    return list(Descriptors.GetMorganFingerprintAsBitVect(mol, 2, nBits=1024))
+    morgan_gen = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=1024)
+    return np.array(morgan_gen)
 
 def qsar_regression_pipeline(input_file, output_file, n_components=50):
-    # Load data
+    print("Loading data...")
     data = pd.read_excel(input_file)
     
-    # Separate SMILES and activity columns
-    smiles_col = data['SMILES']
-    activity_cols = data.drop('SMILES', axis=1)
+    print("Calculating descriptors...")
+    X = np.array([calculate_descriptors(smiles) for smiles in data['SMILES']])
     
-    # Calculate descriptors
-    X = np.array([calculate_descriptors(smiles) for smiles in smiles_col])
-    
-    # Scale features
+    print("Scaling features...")
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    # Train Random Forest model for each activity
+    print("Training Random Forest models...")
     results = {}
-    for col in activity_cols.columns:
-        y = activity_cols[col].values
+    for i, col in enumerate(data.columns[1:], 1):  # Assuming SMILES is the first column
+        print(f"Processing activity {i}/{len(data.columns)-1}: {col}")
+        y = data[col].values
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
         
         rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
@@ -47,18 +45,28 @@ def qsar_regression_pipeline(input_file, output_file, n_components=50):
     for col, metrics in results.items():
         print(f"{col}: MSE = {metrics['MSE']:.4f}, R2 = {metrics['R2']:.4f}")
     
-    # Perform PCA
+    print("Performing PCA...")
     pca = PCA(n_components=n_components)
     X_pca = pca.fit_transform(X_scaled)
     
     # Create output DataFrame
     output_data = pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(n_components)])
-    output_data['SMILES'] = smiles_col
-    output_data = pd.concat([output_data, activity_cols], axis=1)
+    output_data['SMILES'] = data['SMILES']
+    
+    # Add all original biological activity columns
+    output_data = pd.concat([output_data, data.drop('SMILES', axis=1)], axis=1)
     
     # Save results
     output_data.to_csv(output_file, index=False)
     print(f"Results saved to {output_file}")
+    
+    # Print information about PCA
+    print(f"\nPCA Information:")
+    print(f"Number of original molecular descriptors: {X.shape[1]}")
+    print(f"Number of PCA components: {n_components}")
+    print(f"Variance explained by PCA components: {pca.explained_variance_ratio_.sum():.2%}")
+    print(f"\nNote: PCA was applied to molecular descriptors, not biological activity columns.")
+    print(f"All {len(data.columns) - 1} original biological activity columns are preserved in the output file.")
 
 if __name__ == "__main__":
     input_file = "./data/qsar_descriptors.xlsx"

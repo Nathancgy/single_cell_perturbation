@@ -12,7 +12,7 @@ from sklearn.preprocessing import OneHotEncoder
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 import random
 from sklearn.model_selection import KFold as KF
-from models import Conv
+from src.models import Conv
 from src.helper_classes import Dataset
 
 with open("./config/SETTINGS.json") as file:
@@ -21,7 +21,13 @@ with open("./config/SETTINGS.json") as file:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def seed_everything():
-
+    """
+    Set random seeds for reproducibility across different libraries and components.
+    
+    This function sets a fixed seed for random number generators in Python's random module,
+    NumPy, PyTorch, and CUDA (if available). It also sets some environment variables for
+    further consistency.
+    """
     seed = 42
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -38,7 +44,17 @@ def seed_everything():
     
 #### Data preprocessing utilities
 def one_hot_encode(data_train, data_test, out_dir):
+    """
+    Perform one-hot encoding on training and test data and save the results.
 
+    Args:
+        data_train (array-like): Training data to be encoded.
+        data_test (array-like): Test data to be encoded.
+        out_dir (str): Directory to save the encoded data.
+
+    This function fits a OneHotEncoder on the training data, transforms both
+    training and test data, and saves the results as numpy arrays.
+    """
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
     encoder = OneHotEncoder()
@@ -49,6 +65,19 @@ def one_hot_encode(data_train, data_test, out_dir):
     np.save(f"{out_dir}/one_hot_test.npy", test_features.toarray().astype(float))        
         
 def build_ChemBERTa_features(smiles_list, model):
+    """
+    Generate ChemBERTa features for a list of SMILES strings.
+
+    Args:
+        smiles_list (list): List of SMILES strings to generate features for.
+        model (str): Name of the ChemBERTa model to use.
+
+    Returns:
+        tuple: Two numpy arrays containing the embeddings and mean embeddings.
+
+    This function loads a pre-trained ChemBERTa model, tokenizes the SMILES strings,
+    and generates embeddings for each molecule.
+    """
     model_path = f"./models/ChemBERTa-77M-{model}"
     chemberta = AutoModelForMaskedLM.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -74,7 +103,17 @@ def build_ChemBERTa_features(smiles_list, model):
 
 
 def save_ChemBERTa_features(smiles_list, out_dir, model, on_train_data=False):
+    """
+    Generate and save ChemBERTa features for a list of SMILES strings.
 
+    Args:
+        smiles_list (list): List of SMILES strings to generate features for.
+        out_dir (str): Directory to save the generated features.
+        model (str): Name of the ChemBERTa model to use.
+        on_train_data (bool): Flag to indicate if the features are for training data.
+
+    This function generates ChemBERTa features and saves them as numpy arrays.
+    """
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
     emb, emb_mean = build_ChemBERTa_features(smiles_list, model)
@@ -87,7 +126,20 @@ def save_ChemBERTa_features(smiles_list, out_dir, model, on_train_data=False):
                 
 def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quantiles_df=None):
     """
-    This function concatenates the provided vectors, matrices and data frames (i.e., one hot, std, mean, etc) into a single long vector. This is done for each input pair (cell_type, sm_name)
+    Combine various features into a single long vector for each input pair.
+
+    Args:
+        data_aug_dfs (list): List of DataFrames containing augmented data.
+        chem_feats (list): List of chemical features.
+        main_df (DataFrame): Main DataFrame containing cell types and compound names.
+        one_hot_dfs (DataFrame, optional): One-hot encoded features.
+        quantiles_df (DataFrame, optional): DataFrame containing quantile information.
+
+    Returns:
+        numpy.ndarray: Combined features for each input pair.
+
+    This function concatenates various features including one-hot encodings,
+    augmented data, and chemical features into a single vector for each input pair.
     """
     new_vecs = []
     chem_feat_dim = 600
@@ -123,7 +175,19 @@ def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quanti
     return np.stack(new_vecs, axis=0).astype(float).reshape(len(main_df), 1, add_len)
 
 def augment_data(x_, y_):
+    """
+    Augment the input data by setting random elements to zero.
 
+    Args:
+        x_ (numpy.ndarray): Input features.
+        y_ (numpy.ndarray): Corresponding labels.
+
+    Returns:
+        tuple: Augmented features and corresponding labels.
+
+    This function creates a copy of the input features and sets a random 30%
+    of the elements to zero for each sample, effectively augmenting the dataset.
+    """
     copy_x = x_.copy()
     new_x = []
     new_y = y_.copy()
@@ -139,11 +203,39 @@ def augment_data(x_, y_):
 
 #### Metrics
 def mrrmse_np(y_pred, y_true):
+    """
+    Calculate the Mean Root Mean Squared Error (MRRMSE) between predictions and true values.
+
+    Args:
+        y_pred (numpy.ndarray): Predicted values.
+        y_true (numpy.ndarray): True values.
+
+    Returns:
+        float: The calculated MRRMSE.
+
+    This function computes the MRRMSE, which is the mean of the root mean squared errors
+    calculated for each sample across all targets.
+    """
     return np.sqrt(np.square(y_true - y_pred).mean(axis=1)).mean()
 
 
 #### Training utilities
 def train_step(dataloader, model, opt, clip_norm):
+    """
+    Perform a single training step.
+
+    Args:
+        dataloader (DataLoader): DataLoader for the training data.
+        model (nn.Module): The model being trained.
+        opt (Optimizer): The optimizer for updating model parameters.
+        clip_norm (float): The gradient clipping norm.
+
+    Returns:
+        tuple: Average training loss and MRRMSE for this step.
+
+    This function performs forward and backward passes, updates model parameters,
+    and calculates training metrics for a single step.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
     train_losses = []
@@ -164,6 +256,19 @@ def train_step(dataloader, model, opt, clip_norm):
     return np.mean(train_losses), np.mean(train_mrrmse)
 
 def validation_step(dataloader, model):
+    """
+    Perform a validation step.
+
+    Args:
+        dataloader (DataLoader): DataLoader for the validation data.
+        model (nn.Module): The model being evaluated.
+
+    Returns:
+        tuple: Average validation loss and MRRMSE.
+
+    This function evaluates the model on the validation data and calculates
+    the average loss and MRRMSE.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
     val_losses = []
@@ -182,6 +287,25 @@ def validation_step(dataloader, model):
 
 
 def train_function(model, x_train, y_train, x_val, y_val, info_data, config, clip_norm=1.0):
+    """
+    Train a model and perform validation.
+
+    Args:
+        model (nn.Module): The model to train.
+        x_train (numpy.ndarray): Training features.
+        y_train (numpy.ndarray): Training labels.
+        x_val (numpy.ndarray): Validation features.
+        y_val (numpy.ndarray): Validation labels.
+        info_data (dict): Additional information about the data.
+        config (dict): Configuration parameters for training.
+        clip_norm (float): The gradient clipping norm.
+
+    Returns:
+        tuple: Trained model and a dictionary of training results.
+
+    This function trains the model on the provided data, performs validation,
+    and returns the trained model along with training metrics.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     opt = torch.optim.Adam(model.parameters(), lr=config["LEARNING_RATES"][0])
     model.to(device)
@@ -231,7 +355,22 @@ def train_function(model, x_train, y_train, x_val, y_val, info_data, config, cli
 
 
 def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=None, scheme='initial', clip_norm=1.0):
+    """
+    Perform cross-validation for model training.
 
+    Args:
+        X (numpy.ndarray): Input features.
+        y (pandas.DataFrame): Target values.
+        kf_cv (sklearn.model_selection.KFold): K-Fold cross-validator.
+        cell_types_sm_names (pandas.DataFrame): DataFrame containing cell types and small molecule names.
+        chemberta (str): Type of ChemBERTa model used ('MLM' or 'MTR').
+        config (dict, optional): Configuration parameters for training. Defaults to None.
+        scheme (str, optional): Model scheme ('initial', 'light', or 'heavy'). Defaults to 'initial'.
+        clip_norm (float, optional): Gradient clipping norm. Defaults to 1.0.
+
+    Returns:
+        list: List of trained models for each fold.
+    """
     trained_models = []
 
     for i,(train_idx,val_idx) in enumerate(kf_cv.split(X)):
@@ -261,6 +400,21 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
     return trained_models
 
 def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, config, chemberta):
+    """
+    Train and validate models using different input feature sets.
+
+    Args:
+        X_vec (numpy.ndarray): Input features for the 'initial' scheme.
+        X_vec_light (numpy.ndarray): Input features for the 'light' scheme.
+        X_vec_heavy (numpy.ndarray): Input features for the 'heavy' scheme.
+        y (pandas.DataFrame): Target values.
+        cell_types_sm_names (pandas.DataFrame): DataFrame containing cell types and small molecule names.
+        config (dict): Configuration parameters for training.
+        chemberta (str): Type of ChemBERTa model used ('MLM' or 'MTR').
+
+    Returns:
+        dict: Dictionary containing trained models for each scheme.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -283,8 +437,17 @@ def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, conf
 
     return trained_models
 
- #### Inference utilities
 def inference_pytorch(model, dataloader):
+    """
+    Perform inference using a PyTorch model.
+
+    Args:
+        model (torch.nn.Module): Trained PyTorch model.
+        dataloader (torch.utils.data.DataLoader): DataLoader containing the test data.
+
+    Returns:
+        numpy.ndarray: Array of model predictions.
+    """
     device = next(model.parameters()).device
     model.eval()
     preds = []
@@ -298,7 +461,16 @@ def inference_pytorch(model, dataloader):
     return np.concatenate(preds, axis=0)
 
 def average_prediction(X_test, trained_models):
+    """
+    Compute the average prediction from multiple trained models.
 
+    Args:
+        X_test (numpy.ndarray): Test input features.
+        trained_models (list): List of trained PyTorch models.
+
+    Returns:
+        numpy.ndarray: Array of averaged predictions.
+    """
     all_preds = []
     test_dataloader = DataLoader(Dataset(torch.FloatTensor(X_test)), num_workers=4, batch_size=64, shuffle=False)
 
@@ -308,9 +480,19 @@ def average_prediction(X_test, trained_models):
 
     return np.stack(all_preds, axis=1).mean(axis=1)
 
-
 def weighted_average_prediction(X_test, trained_models, model_wise=[0.25, 0.35, 0.40], fold_wise=None):
+    """
+    Compute the weighted average prediction from multiple trained models.
 
+    Args:
+        X_test (numpy.ndarray): Test input features.
+        trained_models (list): List of trained PyTorch models.
+        model_wise (list, optional): Weights for different model types. Defaults to [0.25, 0.35, 0.40].
+        fold_wise (list, optional): Weights for different folds. Defaults to None.
+
+    Returns:
+        numpy.ndarray: Array of weighted average predictions.
+    """
     all_preds = []
     test_dataloader = DataLoader(Dataset(torch.FloatTensor(X_test)), num_workers=4, batch_size=64, shuffle=False)
 
@@ -324,6 +506,17 @@ def weighted_average_prediction(X_test, trained_models, model_wise=[0.25, 0.35, 
     return np.stack(all_preds, axis=1).sum(axis=1)
 
 def load_trained_models(chemberta, path=settings["MODEL_DIR"], kf_n_splits=5):
+    """
+    Load trained models from saved weights.
+
+    Args:
+        chemberta (str): Type of ChemBERTa model used ('MLM' or 'MTR').
+        path (str, optional): Path to the directory containing model weights. Defaults to settings["MODEL_DIR"].
+        kf_n_splits (int, optional): Number of splits in K-Fold cross-validation. Defaults to 5.
+
+    Returns:
+        dict: Dictionary containing loaded models for each scheme.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     trained_models = {'initial': [], 'light': [], 'heavy': []}
  
