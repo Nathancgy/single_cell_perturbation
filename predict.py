@@ -3,7 +3,10 @@ import time
 import pandas as pd
 import numpy as np
 import json
+import torch
+from torch.utils.data import DataLoader
 from src.helper_functions import combine_features, load_trained_models, average_prediction, weighted_average_prediction
+from src.helper_classes import Dataset
 
 def read_data(settings):
     de_train = pd.read_parquet(settings["TRAIN_RAW_DATA_PATH"])
@@ -28,41 +31,55 @@ if __name__ == "__main__":
     mean_sm_name = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}mean_sm_name.csv')
     std_sm_name = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}std_sm_name.csv')
     quantiles_df = pd.read_csv(f'{settings["TRAIN_DATA_AUG_DIR"]}quantiles_cell_type.csv')
-    
+
+    # Load handcrafted features
+    handcrafted_features = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}handcrafted_features_scaled.npy')
+
     # Load ChemBERTa features based on the type (MLM or MTR)
     chemberta_type = test_config.get("CHEMBERTA_TYPE", "MTR")
     if chemberta_type == "MLM":
-        test_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mlm_test.npy')
-        test_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mlm_test_mean.npy')
+        test_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_test_MLM.npy')
+        test_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_test_mean_MLM.npy')
     else:  # Default to MTR
-        test_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mtr_test.npy')
-        test_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_mtr_test_mean.npy')
+        test_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_test_MTR.npy')
+        test_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_test_mean_MTR.npy')
     
     one_hot_test = pd.DataFrame(np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}one_hot_test.npy'))
     
     test_vec = combine_features([mean_cell_type, std_cell_type, mean_sm_name, std_sm_name],\
-                [test_chem_feat, test_chem_feat_mean], id_map, one_hot_test)
+                [test_chem_feat, test_chem_feat_mean], id_map, one_hot_test, handcrafted_features=handcrafted_features)
     test_vec_light = combine_features([mean_cell_type,mean_sm_name],\
-                    [test_chem_feat, test_chem_feat_mean], id_map, one_hot_test)
+                    [test_chem_feat, test_chem_feat_mean], id_map, one_hot_test, handcrafted_features=handcrafted_features)
     test_vec_heavy = combine_features([quantiles_df,mean_cell_type,mean_sm_name],\
-                    [test_chem_feat,test_chem_feat_mean], id_map, one_hot_test, quantiles_df)
+                    [test_chem_feat,test_chem_feat_mean], id_map, one_hot_test, quantiles_df, handcrafted_features=handcrafted_features)
     
     ## Load trained models
     print("\nLoading trained models...")
     trained_models = load_trained_models(chemberta_type, path=f'{settings["MODEL_DIR"]}')
     fold_weights = test_config["FOLD_COEFS"] if test_config["KF_N_SPLITS"] == 5 else [1.0/test_config["KF_N_SPLITS"]]*test_config["KF_N_SPLITS"]
+
     ## Start predictions
     print("\nStarting predictions...")
     t0 = time.time()
-    pred1 = average_prediction(test_vec_light, trained_models['light'])
-    pred2 = weighted_average_prediction(test_vec_light, trained_models['light'],\
+
+    # Create DataLoader for test data
+    test_dataset_light = Dataset(test_vec_light, handcrafted_features=handcrafted_features)
+    test_dataset = Dataset(test_vec, handcrafted_features=handcrafted_features)
+    test_dataset_heavy = Dataset(test_vec_heavy, handcrafted_features=handcrafted_features)
+
+    test_dataloader_light = DataLoader(test_dataset_light, batch_size=64, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    test_dataloader_heavy = DataLoader(test_dataset_heavy, batch_size=64, shuffle=False)
+
+    pred1 = average_prediction(test_dataloader_light, trained_models['light'])
+    pred2 = weighted_average_prediction(test_dataloader_light, trained_models['light'],\
                                         model_wise=test_config["MODEL_COEFS"], fold_wise=fold_weights)
-    pred3 = average_prediction(test_vec, trained_models['initial'])
-    pred4 = weighted_average_prediction(test_vec, trained_models['initial'],\
+    pred3 = average_prediction(test_dataloader, trained_models['initial'])
+    pred4 = weighted_average_prediction(test_dataloader, trained_models['initial'],\
                                         model_wise=test_config["MODEL_COEFS"], fold_wise=fold_weights)
     
-    pred5 = average_prediction(test_vec_heavy, trained_models['heavy'])
-    pred6 = weighted_average_prediction(test_vec_heavy, trained_models['heavy'],\
+    pred5 = average_prediction(test_dataloader_heavy, trained_models['heavy'])
+    pred6 = weighted_average_prediction(test_dataloader_heavy, trained_models['heavy'],\
                                     model_wise=test_config["MODEL_COEFS"], fold_wise=fold_weights)
     t1 = time.time()
     print("Prediction time: ", t1-t0, " seconds")

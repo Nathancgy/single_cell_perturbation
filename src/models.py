@@ -46,8 +46,12 @@ class Conv(nn.Module):
         self.cbam = CBAM(8)
         self.flatten = nn.Flatten()
         self.scheme = scheme
+        
+        # Adjust the input size of the first linear layer
+        self.adjusted_input_size = dims_dict['conv'][self.scheme] + 730
+        
         self.linear = nn.Sequential(
-                nn.Linear(dims_dict['conv'][self.scheme], 1024),
+                nn.Linear(self.adjusted_input_size, 1024),
                 nn.Dropout(0.3),
                 nn.ReLU(),
                 nn.Linear(1024, 512),
@@ -58,35 +62,25 @@ class Conv(nn.Module):
         self.loss2 = LogCoshLoss()
         self.loss3 = nn.L1Loss()
         self.loss4 = nn.BCELoss()
+
+    def forward(self, x, handcrafted_features=None, y=None):
+        out = self.conv_block(x)
+        out = self.cbam(out)
+        out = self.flatten(out)
         
-    def forward(self, x, y=None):
-        """
-        Forward pass of the model.
-
-        Args:
-            x (torch.Tensor): Input tensor.
-            y (torch.Tensor, optional): Target tensor for loss calculation.
-
-        Returns:
-            torch.Tensor: Model output if y is None, otherwise returns the calculated loss.
-        """
-        if y is None:
-            out = self.conv_block(x)
-            out = self.cbam(out)
-            out = self.flatten(out)
-            out = self.head1(self.linear(out))
-            return out
-        else:
-            out = self.conv_block(x)
-            out = self.cbam(out)
-            out = self.flatten(out)
-            out = self.head1(self.linear(out))
+        if handcrafted_features is not None:
+            out = torch.cat([out, handcrafted_features], dim=1)
+        
+        out = self.linear(out)
+        out = self.head1(out)
+        
+        if y is not None:
             loss1 = 0.4*self.loss1(out, y) + 0.3*self.loss2(out, y) + 0.3*self.loss3(out, y)
             yhat = torch.sigmoid(out)
             yy = torch.sigmoid(y)
             loss2 = self.loss4(yhat, yy)
             return 0.8*loss1 + 0.2*loss2
-        
+        return out
 
 class LSTM(nn.Module):
     """

@@ -28,9 +28,10 @@ class LogCoshLoss(nn.Module):
     
     
 class Dataset:
-    def __init__(self, data_x, data_y=None):
-        self.data_x = data_x
-        self.data_y = data_y
+    def __init__(self, data_x, data_y=None, handcrafted_features=None):
+        self.data_x = torch.tensor(data_x, dtype=torch.float32)
+        self.data_y = torch.tensor(data_y, dtype=torch.float32) if data_y is not None else None
+        self.handcrafted_features = torch.tensor(handcrafted_features, dtype=torch.float32) if handcrafted_features is not None else None
 
     def __len__(self):
         return len(self.data_x)
@@ -43,16 +44,27 @@ class Dataset:
             idx (int): Index of the item to retrieve
 
         Returns:
-            tuple or torch.Tensor: Returns (x, y) if data_y is not None, else returns x
+            tuple: Returns (x, y, handcrafted_features) if both data_y and handcrafted_features are not None,
+                   (x, y) if only data_y is not None,
+                   (x, handcrafted_features) if only handcrafted_features is not None,
+                   else returns x
 
         Raises:
             Exception: If there's an error accessing the data at the given index
         """
         try:
-            if self.data_y is not None:
-                return self.data_x[idx], self.data_y[idx]
+            x = self.data_x[idx]
+            y = self.data_y[idx] if self.data_y is not None else None
+            hf = self.handcrafted_features[idx] if self.handcrafted_features is not None else None
+
+            if y is not None and hf is not None:
+                return x, y, hf
+            elif y is not None:
+                return x, y
+            elif hf is not None:
+                return x, hf
             else:
-                return self.data_x[idx]
+                return x
         except Exception as e:
             print(f"Error accessing data at index {idx}: {str(e)}")
             raise

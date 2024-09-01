@@ -46,6 +46,12 @@ if __name__ == "__main__":
     print(f"one_hot_train size: {one_hot_train.shape}")
     print(f"y size: {y.shape}")
 
+    # Load handcrafted features
+    handcrafted_features = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}handcrafted_features.npy')
+
+    # Print size of handcrafted features
+    print(f"handcrafted_features size: {handcrafted_features.shape}")
+
     for chemberta in ['MTR', 'MLM']:
         train_chem_feat = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_train_{chemberta}.npy')
         train_chem_feat_mean = np.load(f'{settings["TRAIN_DATA_AUG_DIR"]}chemberta_train_mean_{chemberta}.npy')
@@ -55,11 +61,11 @@ if __name__ == "__main__":
         print(f"train_chem_feat_mean size ({chemberta}): {train_chem_feat_mean.shape}")
 
         X_vec = combine_features([mean_cell_type, std_cell_type, mean_sm_name, std_sm_name],\
-                [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train)
+                [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train, handcrafted_features=handcrafted_features)
         X_vec_light = combine_features([mean_cell_type, mean_sm_name],\
-                    [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train)
+                    [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train, handcrafted_features=handcrafted_features)
         X_vec_heavy = combine_features([quantiles_df, mean_cell_type, mean_sm_name],\
-                    [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train, quantiles_df)
+                    [train_chem_feat, train_chem_feat_mean], de_train, one_hot_train, quantiles_df, handcrafted_features=handcrafted_features)
         
         # Print the dimensions of the combined features before training
         print(f"\nDimensions before training starts for {chemberta}:")
@@ -69,7 +75,7 @@ if __name__ == "__main__":
         
         cell_types_sm_names = de_train[['cell_type', 'sm_name']]
         print("\nTraining starting...")
-        trained_models = train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, train_config, chemberta)
+        trained_models = train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, train_config, chemberta, handcrafted_features)
         print("\nDone " + chemberta)
 
         # You might want to save or further process the trained_models here

@@ -124,7 +124,7 @@ def save_ChemBERTa_features(smiles_list, out_dir, model, on_train_data=False):
         np.save(f"{out_dir}/chemberta_test_" + model + ".npy", emb)
         np.save(f"{out_dir}/chemberta_test_mean_" + model + ".npy", emb_mean)                
                 
-def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quantiles_df=None):
+def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quantiles_df=None, handcrafted_features=None):
     """
     Combine various features into a single long vector for each input pair.
 
@@ -134,6 +134,7 @@ def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quanti
         main_df (DataFrame): Main DataFrame containing cell types and compound names.
         one_hot_dfs (DataFrame, optional): One-hot encoded features.
         quantiles_df (DataFrame, optional): DataFrame containing quantile information.
+        handcrafted_features (numpy.ndarray, optional): Handcrafted features.
 
     Returns:
         numpy.ndarray: Combined features for each input pair.
@@ -152,6 +153,9 @@ def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quanti
     if quantiles_df is not None:
         add_len += (quantiles_df.shape[1]-1)//3
 
+    if handcrafted_features is not None:
+        add_len += handcrafted_features.shape[1]
+
     for i in range(len(main_df)):
         if one_hot_dfs is not None:
             vec_ = (one_hot_dfs.iloc[i,:].values).copy()
@@ -169,6 +173,10 @@ def combine_features(data_aug_dfs, chem_feats, main_df, one_hot_dfs=None, quanti
 
         for chem_feat in chem_feats:
             vec_ = np.concatenate([vec_, chem_feat[i]])
+
+        if handcrafted_features is not None:
+            vec_ = np.concatenate([vec_, handcrafted_features[i]])
+
         final_vec = np.concatenate([vec_,np.zeros(add_len-vec_.shape[0],)])
         new_vecs.append(final_vec)
 
@@ -221,32 +229,19 @@ def mrrmse_np(y_pred, y_true):
 
 #### Training utilities
 def train_step(dataloader, model, opt, clip_norm):
-    """
-    Perform a single training step.
-
-    Args:
-        dataloader (DataLoader): DataLoader for the training data.
-        model (nn.Module): The model being trained.
-        opt (Optimizer): The optimizer for updating model parameters.
-        clip_norm (float): The gradient clipping norm.
-
-    Returns:
-        tuple: Average training loss and MRRMSE for this step.
-
-    This function performs forward and backward passes, updates model parameters,
-    and calculates training metrics for a single step.
-    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.train()
     train_losses = []
     train_mrrmse = []
 
-    for x, target in dataloader:
-        x = x.to(device)
-        target = target.to(device)
-        loss = model(x, target)
+    for batch in dataloader:
+        x = batch[0].to(device)
+        target = batch[1].to(device)
+        handcrafted_features = batch[2].to(device) if len(batch) > 2 else None
+
+        loss = model(x, handcrafted_features, target)
         train_losses.append(loss.item())
-        pred = model(x).detach().cpu().numpy()
+        pred = model(x, handcrafted_features).detach().cpu().numpy()
         train_mrrmse.append(mrrmse_np(pred, target.cpu().numpy()))
         opt.zero_grad()
         loss.backward()
@@ -256,56 +251,26 @@ def train_step(dataloader, model, opt, clip_norm):
     return np.mean(train_losses), np.mean(train_mrrmse)
 
 def validation_step(dataloader, model):
-    """
-    Perform a validation step.
-
-    Args:
-        dataloader (DataLoader): DataLoader for the validation data.
-        model (nn.Module): The model being evaluated.
-
-    Returns:
-        tuple: Average validation loss and MRRMSE.
-
-    This function evaluates the model on the validation data and calculates
-    the average loss and MRRMSE.
-    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.eval()
     val_losses = []
     val_mrrmse = []
 
     with torch.no_grad():
-        for x, target in dataloader:
-            x = x.to(device)
-            target = target.to(device)
-            loss = model(x,target)
-            pred = model(x).cpu().numpy()
+        for batch in dataloader:
+            x = batch[0].to(device)
+            target = batch[1].to(device)
+            handcrafted_features = batch[2].to(device) if len(batch) > 2 else None
+
+            loss = model(x, handcrafted_features, target)
+            pred = model(x, handcrafted_features).cpu().numpy()
             val_mrrmse.append(mrrmse_np(pred, target.cpu().numpy()))
             val_losses.append(loss.item())
 
     return np.mean(val_losses), np.mean(val_mrrmse)
 
 
-def train_function(model, x_train, y_train, x_val, y_val, info_data, config, clip_norm=1.0):
-    """
-    Train a model and perform validation.
-
-    Args:
-        model (nn.Module): The model to train.
-        x_train (numpy.ndarray): Training features.
-        y_train (numpy.ndarray): Training labels.
-        x_val (numpy.ndarray): Validation features.
-        y_val (numpy.ndarray): Validation labels.
-        info_data (dict): Additional information about the data.
-        config (dict): Configuration parameters for training.
-        clip_norm (float): The gradient clipping norm.
-
-    Returns:
-        tuple: Trained model and a dictionary of training results.
-
-    This function trains the model on the provided data, performs validation,
-    and returns the trained model along with training metrics.
-    """
+def train_function(model, x_train, y_train, x_val, y_val, info_data, config, clip_norm=1.0, handcrafted_features_train=None, handcrafted_features_val=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     opt = torch.optim.Adam(model.parameters(), lr=config["LEARNING_RATES"][0])
     model.to(device)
@@ -317,13 +282,24 @@ def train_function(model, x_train, y_train, x_val, y_val, info_data, config, cli
     x_train_aug = np.concatenate([x_train, x_train_aug], axis=0)
     y_train_aug = np.concatenate([y_train, y_train_aug], axis=0)
     
-    data_x_train = torch.FloatTensor(x_train_aug)
-    data_y_train = torch.FloatTensor(y_train_aug)
-    data_x_val = torch.FloatTensor(x_val)
-    data_y_val = torch.FloatTensor(y_val)
+    # Convert input data to float32
+    x_train_aug = x_train_aug.astype(np.float32)
+    y_train_aug = y_train_aug.astype(np.float32)
+    x_val = x_val.astype(np.float32)
+    y_val = y_val.astype(np.float32)
     
-    train_dataloader = DataLoader(Dataset(data_x_train, data_y_train), num_workers=0, batch_size=128, shuffle=True)
-    val_dataloader = DataLoader(Dataset(data_x_val, data_y_val), num_workers=0, batch_size=256, shuffle=False)
+    if handcrafted_features_train is not None:
+        handcrafted_features_train_aug = np.concatenate([handcrafted_features_train, handcrafted_features_train], axis=0)
+        handcrafted_features_train_aug = handcrafted_features_train_aug.astype(np.float32)
+        handcrafted_features_val = handcrafted_features_val.astype(np.float32)
+        train_dataset = Dataset(x_train_aug, y_train_aug, handcrafted_features_train_aug)
+        val_dataset = Dataset(x_val, y_val, handcrafted_features_val)
+    else:
+        train_dataset = Dataset(x_train_aug, y_train_aug)
+        val_dataset = Dataset(x_val, y_val)
+    
+    train_dataloader = DataLoader(train_dataset, num_workers=0, batch_size=128, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, num_workers=0, batch_size=256, shuffle=False)
     
     best_loss = np.inf
     best_weights = None
@@ -354,7 +330,7 @@ def train_function(model, x_train, y_train, x_val, y_val, info_data, config, cli
     return model, results
 
 
-def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=None, scheme='initial', clip_norm=1.0):
+def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=None, scheme='initial', clip_norm=1.0, handcrafted_features=None):
     """
     Perform cross-validation for model training.
 
@@ -367,6 +343,7 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
         config (dict, optional): Configuration parameters for training. Defaults to None.
         scheme (str, optional): Model scheme ('initial', 'light', or 'heavy'). Defaults to 'initial'.
         clip_norm (float, optional): Gradient clipping norm. Defaults to 1.0.
+        handcrafted_features (numpy.ndarray, optional): Handcrafted features. Defaults to None.
 
     Returns:
         list: List of trained models for each fold.
@@ -374,17 +351,26 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
     trained_models = []
 
     for i,(train_idx,val_idx) in enumerate(kf_cv.split(X)):
-
         print(f"\nSplit {i+1}/{kf_cv.n_splits}...")
         x_train, x_val = X[train_idx], X[val_idx]
         y_train, y_val = y.values[train_idx], y.values[val_idx]
+        
+        if handcrafted_features is not None:
+            handcrafted_features_train = handcrafted_features[train_idx]
+            handcrafted_features_val = handcrafted_features[val_idx]
+        else:
+            handcrafted_features_train = None
+            handcrafted_features_val = None
+        
         info_data = {'train_cell_type': cell_types_sm_names.iloc[train_idx]['cell_type'].tolist(),
                     'val_cell_type': cell_types_sm_names.iloc[val_idx]['cell_type'].tolist(),
                     'train_sm_name': cell_types_sm_names.iloc[train_idx]['sm_name'].tolist(),
                     'val_sm_name': cell_types_sm_names.iloc[val_idx]['sm_name'].tolist()}
         
         model = Conv(scheme)
-        model, results = train_function(model, x_train, y_train, x_val, y_val, info_data, config=config, clip_norm=clip_norm)
+        model, results = train_function(model, x_train, y_train, x_val, y_val, info_data, config=config, clip_norm=clip_norm, 
+                                        handcrafted_features_train=handcrafted_features_train, 
+                                        handcrafted_features_val=handcrafted_features_val)
         trained_models.append(model)
 
         if not os.path.exists(f'{settings["MODEL_DIR"]}{chemberta}/{model.name}/'):
@@ -399,7 +385,7 @@ def cross_validate_models(X, y, kf_cv, cell_types_sm_names, chemberta, config=No
 
     return trained_models
 
-def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, config, chemberta):
+def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, config, chemberta, handcrafted_features):
     """
     Train and validate models using different input feature sets.
 
@@ -411,6 +397,7 @@ def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, conf
         cell_types_sm_names (pandas.DataFrame): DataFrame containing cell types and small molecule names.
         config (dict): Configuration parameters for training.
         chemberta (str): Type of ChemBERTa model used ('MLM' or 'MTR').
+        handcrafted_features (numpy.ndarray): Handcrafted features.
 
     Returns:
         dict: Dictionary containing trained models for each scheme.
@@ -432,7 +419,7 @@ def train_validate(X_vec, X_vec_light, X_vec_heavy, y, cell_types_sm_names, conf
 
     for scheme, clip_norm, input_features in zip(['initial', 'light', 'heavy'], config["CLIP_VALUES"], [X_vec, X_vec_light, X_vec_heavy]):
         seed_everything()
-        models = cross_validate_models(input_features, y, kf_cv, cell_types_sm_names, chemberta, config=config, scheme=scheme, clip_norm=clip_norm)
+        models = cross_validate_models(input_features, y, kf_cv, cell_types_sm_names, chemberta, config=config, scheme=scheme, clip_norm=clip_norm, handcrafted_features=handcrafted_features)
         trained_models[scheme].extend(models)
 
     return trained_models
@@ -453,39 +440,39 @@ def inference_pytorch(model, dataloader):
     preds = []
  
     with torch.no_grad():
-        for x in dataloader:
-            x = x.to(device)
-            pred = model(x).cpu().numpy()
+        for batch in dataloader:
+            x = batch[0].to(device)
+            handcrafted_features = batch[1].to(device) if len(batch) > 1 else None
+            pred = model(x, handcrafted_features).cpu().numpy()
             preds.append(pred)
  
     return np.concatenate(preds, axis=0)
 
-def average_prediction(X_test, trained_models):
+def average_prediction(dataloader, trained_models):
     """
     Compute the average prediction from multiple trained models.
 
     Args:
-        X_test (numpy.ndarray): Test input features.
+        dataloader (torch.utils.data.DataLoader): DataLoader containing the test data.
         trained_models (list): List of trained PyTorch models.
 
     Returns:
         numpy.ndarray: Array of averaged predictions.
     """
     all_preds = []
-    test_dataloader = DataLoader(Dataset(torch.FloatTensor(X_test)), num_workers=4, batch_size=64, shuffle=False)
 
     for model in trained_models:
-        current_pred = inference_pytorch(model, test_dataloader)
+        current_pred = inference_pytorch(model, dataloader)
         all_preds.append(current_pred)
 
     return np.stack(all_preds, axis=1).mean(axis=1)
 
-def weighted_average_prediction(X_test, trained_models, model_wise=[0.25, 0.35, 0.40], fold_wise=None):
+def weighted_average_prediction(dataloader, trained_models, model_wise=[0.25, 0.35, 0.40], fold_wise=None):
     """
     Compute the weighted average prediction from multiple trained models.
 
     Args:
-        X_test (numpy.ndarray): Test input features.
+        dataloader (torch.utils.data.DataLoader): DataLoader containing the test data.
         trained_models (list): List of trained PyTorch models.
         model_wise (list, optional): Weights for different model types. Defaults to [0.25, 0.35, 0.40].
         fold_wise (list, optional): Weights for different folds. Defaults to None.
@@ -494,13 +481,12 @@ def weighted_average_prediction(X_test, trained_models, model_wise=[0.25, 0.35, 
         numpy.ndarray: Array of weighted average predictions.
     """
     all_preds = []
-    test_dataloader = DataLoader(Dataset(torch.FloatTensor(X_test)), num_workers=4, batch_size=64, shuffle=False)
 
-    for i,model in enumerate(trained_models):
-        current_pred = inference_pytorch(model, test_dataloader)
-        current_pred = model_wise[i%3]*current_pred
+    for i, model in enumerate(trained_models):
+        current_pred = inference_pytorch(model, dataloader)
+        current_pred = model_wise[i%3] * current_pred
         if fold_wise:
-            current_pred = fold_wise[i//3]*current_pred
+            current_pred = fold_wise[i//3] * current_pred
         all_preds.append(current_pred)
 
     return np.stack(all_preds, axis=1).sum(axis=1)
@@ -528,7 +514,28 @@ def load_trained_models(chemberta, path=settings["MODEL_DIR"], kf_n_splits=5):
                 weights_filename = f'{scheme}_fold{fold}.pt'
                 weights_path = os.path.join(model_dir, weights_filename)
                 if os.path.exists(weights_path):
-                    model.load_state_dict(torch.load(weights_path, map_location=device))
+                    state_dict = torch.load(weights_path, map_location=device)
+                    
+                    # Adjust the size of the first linear layer's weights
+                    old_linear_weight = state_dict['linear.0.weight']
+                    new_linear_weight = torch.zeros(1024, model.adjusted_input_size, device=device)
+                    
+                    # Copy the old weights to the new tensor
+                    min_width = min(old_linear_weight.size(1), new_linear_weight.size(1))
+                    new_linear_weight[:, :min_width] = old_linear_weight[:, :min_width]
+                    
+                    state_dict['linear.0.weight'] = new_linear_weight
+                    
+                    # Adjust the size of the first linear layer's bias if necessary
+                    if 'linear.0.bias' in state_dict and state_dict['linear.0.bias'].size(0) != 1024:
+                        old_linear_bias = state_dict['linear.0.bias']
+                        new_linear_bias = torch.zeros(1024, device=device)
+                        min_size = min(old_linear_bias.size(0), new_linear_bias.size(0))
+                        new_linear_bias[:min_size] = old_linear_bias[:min_size]
+                        state_dict['linear.0.bias'] = new_linear_bias
+                    
+                    # Load the adjusted state dict
+                    model.load_state_dict(state_dict, strict=False)
                     model.to(device)
                     trained_models[scheme].append(model)
  
