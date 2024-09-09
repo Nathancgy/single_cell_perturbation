@@ -1,0 +1,216 @@
+import torch
+import torch.nn as nn
+from QSAR_pipeline.helper_classes import LogCoshLoss, CBAM
+import numpy as np
+
+dims_dict = {'conv': {'heavy': 13408, 'light': 4576, 'initial': 8992},
+                                    'rnn': {'linear': {'heavy': 99968, 'light': 24192, 'initial': 29568},
+                                           'input_shape': {'heavy': [779,142], 'light': [187,202], 'initial': [229,324]}
+                                           }}
+
+class Conv(nn.Module):
+    """
+    Convolutional Neural Network model for regression tasks.
+
+    This model uses 1D convolutions, dropout, and CBAM attention mechanism.
+
+    Args:
+        scheme (str): The scheme to use for determining the dimensions of the model.
+
+    Attributes:
+        name (str): Name of the model.
+        conv_block (nn.Sequential): Convolutional layers of the model.
+        cbam (CBAM): Channel and spatial attention module.
+        flatten (nn.Flatten): Flattening layer.
+        linear (nn.Sequential): Fully connected layers.
+        head1 (nn.Linear): Output layer.
+        loss1 (nn.MSELoss): Mean Squared Error loss.
+        loss2 (LogCoshLoss): Log-Cosh loss.
+        loss3 (nn.L1Loss): L1 loss.
+        loss4 (nn.BCELoss): Binary Cross Entropy loss.
+    """
+
+    def __init__(self, scheme):
+        super(Conv, self).__init__()
+        self.name = 'Conv'
+        self.conv_block = nn.Sequential(
+            nn.Conv1d(1, 8, 5, stride=1, padding=0),
+            nn.Dropout(0.3),
+            nn.Conv1d(8, 8, 5, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Conv1d(8, 16, 5, stride=2, padding=0),
+            nn.Dropout(0.3),
+            nn.AvgPool1d(11),
+            nn.Conv1d(16, 8, 3, stride=3, padding=0),
+        )
+        self.cbam = CBAM(8)
+        self.flatten = nn.Flatten()
+        self.scheme = scheme
+        
+        # Adjust the input size of the first linear layer
+        self.adjusted_input_size = dims_dict['conv'][self.scheme] + 403
+        
+        self.linear = nn.Sequential(
+                nn.Linear(self.adjusted_input_size, 1024),
+                nn.Dropout(0.3),
+                nn.ReLU(),
+                nn.Linear(1024, 512),
+                nn.Dropout(0.3),
+                nn.ReLU())
+        self.head1 = nn.Linear(512, 18211)
+        self.loss1 = nn.MSELoss()
+        self.loss2 = LogCoshLoss()
+        self.loss3 = nn.L1Loss()
+        self.loss4 = nn.BCELoss()
+
+    def forward(self, x, handcrafted_features=None, y=None):
+        out = self.conv_block(x)
+        out = self.cbam(out)
+        out = self.flatten(out)
+        
+        if handcrafted_features is not None:
+            out = torch.cat([out, handcrafted_features], dim=1)
+        
+        out = self.linear(out)
+        out = self.head1(out)
+        
+        if y is not None:
+            loss1 = 0.4*self.loss1(out, y) + 0.3*self.loss2(out, y) + 0.3*self.loss3(out, y)
+            yhat = torch.sigmoid(out)
+            yy = torch.sigmoid(y)
+            loss2 = self.loss4(yhat, yy)
+            return 0.8*loss1 + 0.2*loss2
+        return out
+
+class LSTM(nn.Module):
+    """
+    Long Short-Term Memory (LSTM) model for regression tasks.
+
+    Args:
+        scheme (str): The scheme to use for determining the dimensions of the model.
+
+    Attributes:
+        name (str): Name of the model.
+        lstm (nn.LSTM): LSTM layer.
+        linear (nn.Sequential): Fully connected layers.
+        head1 (nn.Linear): Output layer.
+        loss1 (nn.MSELoss): Mean Squared Error loss.
+        loss2 (LogCoshLoss): Log-Cosh loss.
+        loss3 (nn.L1Loss): L1 loss.
+        loss4 (nn.BCELoss): Binary Cross Entropy loss.
+    """
+
+    def __init__(self, scheme):
+        super(LSTM, self).__init__()
+        self.name = 'LSTM'
+        self.scheme = scheme
+        self.lstm = nn.LSTM(dims_dict['rnn']['input_shape'][self.scheme][1], 128, num_layers=2, batch_first=True)
+        self.linear = nn.Sequential(
+            nn.Linear(dims_dict['rnn']['linear'][self.scheme], 1024),
+            nn.Dropout(0.3),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.Dropout(0.3),
+            nn.ReLU())
+        self.head1 = nn.Linear(512, 18211)
+        self.loss1 = nn.MSELoss()
+        self.loss2 = LogCoshLoss()
+        self.loss3 = nn.L1Loss()
+        self.loss4 = nn.BCELoss()
+        
+    def forward(self, x, y=None):
+        """
+        Forward pass of the model.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+            y (torch.Tensor, optional): Target tensor for loss calculation.
+
+        Returns:
+            torch.Tensor: Model output if y is None, otherwise returns the calculated loss.
+        """
+        shape1, shape2 = dims_dict['rnn']['input_shape'][self.scheme]
+        x = x.reshape(x.shape[0],shape1,shape2)
+        if y is None:
+            out, (hn, cn) = self.lstm(x)
+            out = out.reshape(out.shape[0],-1)
+            out = torch.cat([out, hn.reshape(hn.shape[1], -1)], dim=1)
+            out = self.head1(self.linear(out))
+            return out
+        else:
+            out, (hn, cn) = self.lstm(x)
+            out = out.reshape(out.shape[0],-1)
+            out = torch.cat([out, hn.reshape(hn.shape[1], -1)], dim=1)
+            out = self.head1(self.linear(out))
+            loss1 = 0.4*self.loss1(out, y) + 0.3*self.loss2(out, y) + 0.3*self.loss3(out, y)
+            yhat = torch.sigmoid(out)
+            yy = torch.sigmoid(y)
+            loss2 = self.loss4(yhat, yy)
+            return 0.8*loss1 + 0.2*loss2
+        
+        
+class GRU(nn.Module):
+    """
+    Gated Recurrent Unit (GRU) model for regression tasks.
+
+    Args:
+        scheme (str): The scheme to use for determining the dimensions of the model.
+
+    Attributes:
+        name (str): Name of the model.
+        gru (nn.GRU): GRU layer.
+        linear (nn.Sequential): Fully connected layers.
+        head1 (nn.Linear): Output layer.
+        loss1 (nn.MSELoss): Mean Squared Error loss.
+        loss2 (LogCoshLoss): Log-Cosh loss.
+        loss3 (nn.L1Loss): L1 loss.
+        loss4 (nn.BCELoss): Binary Cross Entropy loss.
+    """
+
+    def __init__(self, scheme):
+        super(GRU, self).__init__()
+        self.name = 'GRU'
+        self.scheme = scheme
+        self.gru = nn.GRU(dims_dict['rnn']['input_shape'][self.scheme][1], 128, num_layers=2, batch_first=True)
+        self.linear = nn.Sequential(
+            nn.Linear(dims_dict['rnn']['linear'][self.scheme], 1024),
+            nn.Dropout(0.3),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.Dropout(0.3),
+            nn.ReLU())
+        self.head1 = nn.Linear(512, 18211)
+        self.loss1 = nn.MSELoss()
+        self.loss2 = LogCoshLoss()
+        self.loss3 = nn.L1Loss()
+        self.loss4 = nn.BCELoss()
+        
+    def forward(self, x, y=None):
+        """
+        Forward pass of the model.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+            y (torch.Tensor, optional): Target tensor for loss calculation.
+
+        Returns:
+            torch.Tensor: Model output if y is None, otherwise returns the calculated loss.
+        """
+        shape1, shape2 = dims_dict['rnn']['input_shape'][self.scheme]
+        x = x.reshape(x.shape[0],shape1,shape2)
+        if y is None:
+            out, hn = self.gru(x)
+            out = out.reshape(out.shape[0],-1)
+            out = torch.cat([out, hn.reshape(hn.shape[1], -1)], dim=1)
+            out = self.head1(self.linear(out))
+            return out
+        else:
+            out, hn = self.gru(x)
+            out = out.reshape(out.shape[0],-1)
+            out = torch.cat([out, hn.reshape(hn.shape[1], -1)], dim=1)
+            out = self.head1(self.linear(out))
+            loss1 = 0.4*self.loss1(out, y) + 0.3*self.loss2(out, y) + 0.3*self.loss3(out, y)
+            yhat = torch.sigmoid(out)
+            yy = torch.sigmoid(y)
+            loss2 = self.loss4(yhat, yy)
+            return 0.8*loss1 + 0.2*loss2

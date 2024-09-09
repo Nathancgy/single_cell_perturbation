@@ -1,5 +1,9 @@
-prepared_data
+# Directories
+prepared_data/
+__pycache__/
+qsar_models/
+
+# Files
 test.py
-__pycache__
 warnings.log
 qsar_regression.py
