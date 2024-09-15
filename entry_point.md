@@ -9,25 +9,6 @@ Run: `python prepare_data.py`
   - Generates ChemBERTa features for SMILES data
 - Saves prepared data in TRAIN_DATA_AUG_DIR (specified in SETTINGS.json)
 
-# Two different pipelines for prediction (CNN and QSAR)
-
-## CNN Pipeline for prediction
-
-## 1. CNN Pipeline Training
-Run: `python CNN_pipeline/train.py`
-- Reads training data from TRAIN_RAW_DATA_PATH and TRAIN_DATA_AUG_DIR
-- Builds input features including handcrafted features from QSAR predictions
-- Trains CNN models for both MTR and MLM ChemBERTa types
-- Saves trained models to MODEL_DIR/CNN/
-
-## 2. CNN Pipeline Prediction
-Run: `python CNN_pipeline/predict.py`
-- Reads test data and prepared features
-- Loads trained CNN models
-- Specify the model type (MTR or MLM)
-- Makes predictions using ensemble of models
-- Saves predictions to SUBMISSION_DIR/CNN_submission.csv
-
 ## QSAR Pipeline for prediction
 
 ## 1. QSAR Model Training and Prediction
