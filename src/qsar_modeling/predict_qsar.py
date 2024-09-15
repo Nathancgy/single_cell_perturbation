@@ -37,3 +37,14 @@ result_df['SMILES'] = new_data['SMILES']
 result_df.to_csv('predicted_qsar_features.csv', index=False)
 
 print("Predictions completed. Results saved in 'predicted_qsar_features.csv'.")
+
+visualization_data = pd.DataFrame(X_new, columns=[f'fp_{i}' for i in range(X_new.shape[1])])
+visualization_data = pd.concat([visualization_data, result_df.drop('SMILES', axis=1)], axis=1)
+visualization_data['SMILES'] = new_data['SMILES']
+visualization_data.to_parquet('visualization_data.parquet')
+
+# Calculate correlation matrix
+correlation_matrix = result_df.drop('SMILES', axis=1).corr()
+correlation_matrix.to_csv('qsar_correlation_matrix.csv')
+
+print("Additional data saved for visualization.")
