@@ -1,12 +1,12 @@
 # Single Cell Perturbation Analysis Project Overview
 
+![Method overview](./img/overview.png)
+
 ## Context
 **Single-cell perturbation prediction** techniques utilize molecular features of compounds to estimate changes in gene expression across different cell types under chemical perturbations, thereby enabling drug performance predictions and facilitating drug screening. The technology holds significant value in fields such as biopharmaceuticals and biotechnology as it significantly reduces research and development costs and shortens the development cycle. However, because the extraction process of chemical molecular features is challenging, the relationship between gene expression and chemical perturbations is complex, and the theoretical foundation for existing prediction methods is weak, predictive accuracies often do not appear at the desired level. 
 
 ## Project Overview
 To address these challenges, this project proposes a CNN model with an attention mechanism that combines deep and handcrafted features. The model first introduces the ChemBERTa feature representation model to extract encoded features from the SMILES strings of chemical molecules. At the same time, a random forest (RF) model is pre-trained to predict handcrafted molecular structure features from the SMILES strings. Then, a one-dimensional CNN and the pre-trained RF model are used to extract deep features and handcrafted features from the molecular formulas of the chemical compounds, respectively, leading to the next step, where the two feature sets are concatenated. Finally, an attention-based deep network structure is constructed to predict changes in single-cell gene expression. This method combines handcrafted and deep features to establish a stronger representation model. By incorporating an attention mechanism, the robustness of the network model is further enhanced and overfitting is mitigated. Extensive ablation and comparative experiments also demonstrate the effectiveness and accuracy of the proposed model.
-
-![Method overview](./img/overview.png)
 
 ![Results](./img/results.png)
 
