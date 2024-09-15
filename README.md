@@ -29,10 +29,6 @@ pip install -r requirements.txt
 
 ```
 single_cell_perturbation/
-├── README.md
-├── requirements.txt
-├── LICENSE
-├── .gitignore
 ├── config/
 │   ├── SETTINGS.json
 │   ├── train_config.json
@@ -45,10 +41,12 @@ single_cell_perturbation/
 ├── src/
 │   ├── prepare_data.py
 │   ├── data_vis.py
+│   ├── pca_vis.py
+│   ├── data_analysis.ipynb
 │   └── qsar_modeling/
 │       ├── train_qsar.py
 │       ├── predict_qsar.py
-│       └── scale_qsar.py
+│       ├── scale_qsar.py
 ├── CNN_pipeline/
 │   ├── helper_functions.py
 │   ├── models.py
@@ -65,19 +63,6 @@ single_cell_perturbation/
 │   │   └── config.json
 │   └── ChemBERTa-77M-MTR/
 │       └── config.json
-├── trained_models/
-│   ├── CNN/
-│   └── QSAR/
-├── results/
-│   ├── QSAR/
-│   │   ├── MLM/
-│   │   │   └── Conv/
-│   │   └── MTR/
-│   │       └── Conv/
-│   └── QSAR_no_data_aug/
-│       └── MLM/
-│           └── Conv/
-├── submissions/
 └── entry_point.md
 ```
 
